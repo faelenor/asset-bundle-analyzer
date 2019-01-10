@@ -1000,8 +1000,6 @@ class AudioClipHandler(BaseHandler):
             CREATE VIEW view_suspicious_audio_clips AS
             SELECT name, size, bits_per_sample, frequency, channels, type, format, bundle FROM audio_clip_view
             WHERE (type = "Streaming" AND size < 1024*1024)
-            OR (type = "Compressed in Memory" AND (size > 1024*1024 OR size < 200*1024))
-            OR (type = "Decompress on Load" AND size > 200*1024)
         ''')
 
 class AnimationClipHandler(BaseHandler):
