@@ -456,7 +456,7 @@ class ObjectProcessor(object):
                 objects.id,
                 objects.object_id,
                 objects.bundle,
-                files.name AS file
+                files.name AS file,
                 objects.class_id,
                 types.name AS type,
                 objects.name,
