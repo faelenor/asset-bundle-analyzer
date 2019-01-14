@@ -34,6 +34,8 @@ def main():
                 if fnmatch.fnmatch(f, args.pattern):
                     filepath = os.path.join(root, f)
 
+                    bundle_name = os.path.relpath(filepath, os.path.realpath(args.path))
+
                     # WebExtract the asset bundle.
                     with open(os.devnull, 'wb') as devnull:
                         p = subprocess.Popen([os.path.join(args.tool_path, "WebExtract"), filepath], stdout=devnull, stderr=devnull)
@@ -43,7 +45,7 @@ def main():
                     # Iterate extracted files.
                     datapath = filepath + "_data"
                     if ret_code == 0 and os.path.isdir(datapath):
-                        print("Processing " + f)
+                        print("Processing " + bundle_name)
                         for f2 in os.listdir(datapath):
                             datafile = os.path.join(datapath, f2)
 
@@ -58,7 +60,7 @@ def main():
                                 print("Parsing " + f2)
                                 p = Parser(file_index);
                                 objs = p.parse(datafile + ".txt")
-                                processor.process_objects(f, objs, db, f2, args.store_raw)
+                                processor.process_objects(bundle_name, objs, db, f2, args.store_raw)
 
                         if not args.keep_temp:
                             shutil.rmtree(datapath)
@@ -285,7 +287,7 @@ class Parser(object):
                 return value
         elif typename in ["int", "unsigned int", "SInt64", "UInt64", "SInt32", "UInt32", "SInt16", "UInt16", "SInt8", "UInt8"]:
             return int(value)
-        elif typename == "float":
+        elif typename == "float" or typename == "double":
             return float(value)
         elif typename == "Vector4f":
             match = re.match(r"\((\S+) (\S+) (\S+) (\S+)\)", value)
