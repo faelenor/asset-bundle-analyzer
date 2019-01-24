@@ -448,7 +448,7 @@ class ObjectProcessor(object):
                 game_object INTEGER,
                 size INTEGER,
                 serialized_fields INTEGER,
-                PRIMARY KEY (file, id)
+                PRIMARY KEY (id)
                 FOREIGN KEY (class_id) REFERENCES types(class_id)
             )
         ''')
