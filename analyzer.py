@@ -28,13 +28,14 @@ def main():
     processor = ObjectProcessor(file_index)
     processor.init_database(db)
 
+    bundle_id = 0
+    cursor = db.cursor()
+
     if os.path.isdir(args.path):
         for root, dirs, files in os.walk(args.path):
             for f in files:
                 if fnmatch.fnmatch(f, args.pattern):
                     filepath = os.path.join(root, f)
-
-                    bundle_name = os.path.relpath(filepath, os.path.realpath(args.path))
 
                     # WebExtract the asset bundle.
                     with open(os.devnull, 'wb') as devnull:
@@ -45,7 +46,18 @@ def main():
                     # Iterate extracted files.
                     datapath = filepath + "_data"
                     if ret_code == 0 and os.path.isdir(datapath):
+                        bundle_id += 1
+                        bundle_name = os.path.relpath(filepath, os.path.realpath(args.path))
+                        bundle_size = os.path.getsize(filepath)
+
+                        cursor.execute('''
+                            INSERT INTO asset_bundles(id, name, file_size)
+                                VALUES(?,?,?)
+                        ''', (bundle_id, bundle_name, bundle_size))
+                        db.commit()
+
                         print("Processing " + bundle_name)
+
                         for f2 in os.listdir(datapath):
                             datafile = os.path.join(datapath, f2)
 
@@ -60,7 +72,7 @@ def main():
                                 print("Parsing " + f2)
                                 p = Parser(file_index);
                                 objs = p.parse(datafile + ".txt")
-                                processor.process_objects(bundle_name, objs, db, f2, args.store_raw)
+                                processor.process_objects(bundle_id, objs, db, f2, args.store_raw)
 
                         if not args.keep_temp:
                             shutil.rmtree(datapath)
@@ -268,8 +280,19 @@ class Parser(object):
                         "Type": field.type[5:-1], # Remove PPtr<>
                     })
                 else:
-                    # Recursively parse nested object.
-                    obj[field.name] = Field(field.type, self._parse_obj(level+1))
+                    field_name = field.name
+
+                    # Special case for VertexData not having the same syntax.
+                    if field_name != "<vector data>":
+                        # Special case because for some reason, lists are not always serialized as vectors.
+                        if field_name in obj:
+                            i = 0
+                            while "{0}/{1}".format(field_name, i) in obj:
+                                i += 1
+                            field_name = "{0}/{1}".format(field_name, i)
+
+                        # Recursively parse nested object.
+                        obj[field_name] = Field(field.type, self._parse_obj(level+1))
             else:
                 # Simple type, just cast it.
                 obj[field.name] = Field(field.type, self._typecast(field.value, field.type))
@@ -367,7 +390,7 @@ class ObjectProcessor(object):
         }
         self._default_handler = DefaultHandler(self._id_generator, self._file_index)
 
-    def process_objects(self, bundle_name, objs, db, file, store_raw):
+    def process_objects(self, bundle_id, objs, db, file, store_raw):
         cursor = db.cursor()
         file_id = self._file_index.get_id(file)
         
@@ -395,9 +418,9 @@ class ObjectProcessor(object):
 
             # Add object to database.
             cursor.execute('''
-                INSERT INTO objects(id, file, object_id, bundle, class_id, name, game_object, size, serialized_fields)
+                INSERT INTO objects(id, file, object_id, bundle_id, class_id, name, game_object, size, serialized_fields)
                     VALUES(?,?,?,?,?,?,?,?,?)
-            ''', (current_id, file_id, object_id, bundle_name, class_id, name, game_object_id, size, serialized_fields))
+            ''', (current_id, file_id, object_id, bundle_id, class_id, name, game_object_id, size, serialized_fields))
             
             # Also store the JSON object if requested.
             if store_raw:
@@ -442,7 +465,7 @@ class ObjectProcessor(object):
                 id INTEGER,
                 file INTEGER,
                 object_id INTEGER,
-                bundle TEXT,
+                bundle_id INTEGER,
                 class_id INTEGER,
                 name TEXT,
                 game_object INTEGER,
@@ -450,6 +473,7 @@ class ObjectProcessor(object):
                 serialized_fields INTEGER,
                 PRIMARY KEY (id)
                 FOREIGN KEY (class_id) REFERENCES types(class_id)
+                FOREIGN KEY (bundle_id) REFERENCES asset_bundles(id)
             )
         ''')
         cursor.execute('''
@@ -457,7 +481,7 @@ class ObjectProcessor(object):
             SELECT
                 objects.id,
                 objects.object_id,
-                objects.bundle,
+                asset_bundles.name AS bundle,
                 files.name AS file,
                 objects.class_id,
                 types.name AS type,
@@ -468,6 +492,7 @@ class ObjectProcessor(object):
             FROM objects
             INNER JOIN types ON objects.class_id = types.class_id
             INNER JOIN files ON objects.file = files.id
+            INNER JOIN asset_bundles ON objects.bundle_id = asset_bundles.id
         ''')
         cursor.execute('''
             CREATE TABLE raw_objects(
@@ -497,6 +522,28 @@ class ObjectProcessor(object):
         ''')
         cursor.execute('''
             CREATE INDEX idx_refs_referees ON refs (referee_id)
+        ''')
+
+        ##### Asset Bundles #####
+        cursor.execute('''
+            CREATE TABLE asset_bundles(
+                id INTEGER,
+                name TEXT,
+                file_size INTEGER,
+                PRIMARY KEY (id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE VIEW asset_bundle_view AS
+            SELECT
+                ab.id,
+                ab.name,
+                ab.file_size,
+                sum(o.size) as uncompressed_size,
+                sum(o.size)*1.0 / ab.file_size as compression_ratio
+            FROM asset_bundles ab
+            INNER JOIN objects o ON o.bundle_id = ab.id
+            GROUP BY ab.name
         ''')
 
         ##### Views #####
@@ -645,6 +692,7 @@ class BaseHandler(object):
             "SInt8": 1,
             "UInt8": 1,
             "float": 4,
+            "double": 8,
             "Vector4f": 16,
             "Vector3f": 12,
             "Vector2f": 8,
@@ -682,12 +730,17 @@ class MeshHandler(BaseHandler):
         compression = obj["m_MeshCompression"].value
         rw_enabled = obj["m_IsReadable"].value
 
+        vertex_size = 0
+
         if compression == 0:
             # Index buffer size depends on the format which is either 16 or 32 bits per index.
             index_buffer_size = BaseHandler._vector_len(obj["m_IndexBuffer"])
             bytes_per_index = 2 if obj["m_IndexFormat"].value == 0 else 4
             indices = index_buffer_size / bytes_per_index
             vertices = obj["m_VertexData"].value["m_VertexCount"].value
+
+            # Ugly hack because vertex data is stored in a way that doesn't respect the syntax of the document.
+            vertex_size = obj["m_VertexData"].value["size"].value
         else:
             compressed_mesh = obj["m_CompressedMesh"].value
             vertices = compressed_mesh["m_Vertices"].value["m_NumItems"].value / 3
@@ -698,7 +751,8 @@ class MeshHandler(BaseHandler):
                 VALUES(?,?,?,?,?)
         ''', (current_id, indices, vertices, compression, rw_enabled))
 
-        return (name,) + self._recursive_process(obj, "")
+        size, references, field_count = self._recursive_process(obj, "")
+        return (name, size + vertex_size, references, field_count)
 
     def init_database(self, cursor):
         cursor.execute('''
@@ -715,12 +769,12 @@ class MeshHandler(BaseHandler):
         cursor.execute('''
             CREATE VIEW mesh_view AS
             SELECT
-                objects.*,
+                object_view.*,
                 meshes.indices,
                 meshes.vertices,
                 meshes.compression,
                 meshes.rw_enabled
-            FROM objects INNER JOIN meshes ON objects.id = meshes.id
+            FROM object_view INNER JOIN meshes ON object_view.id = meshes.id
         ''')
         cursor.execute('''
             CREATE VIEW view_rw_meshes AS
@@ -828,14 +882,14 @@ class Texture2DHandler(BaseHandler):
         cursor.execute('''
             CREATE VIEW texture_view AS
             SELECT
-                objects.*,
+                object_view.*,
                 texture_formats.format,
                 textures.width,
                 textures.height,
                 textures.mip_count,
                 textures.rw_enabled
-            FROM objects
-            INNER JOIN textures ON objects.id = textures.id
+            FROM object_view
+            INNER JOIN textures ON object_view.id = textures.id
             LEFT JOIN texture_formats ON textures.format = texture_formats.id
         ''')
         cursor.execute('''
@@ -894,11 +948,11 @@ class ShaderHandler(BaseHandler):
         cursor.execute('''
             CREATE VIEW shader_view AS
             SELECT
-                objects.*,
+                object_view.*,
                 shaders.properties,
                 shaders.sub_shaders,
                 shaders.sub_programs
-            FROM objects INNER JOIN shaders ON objects.id = shaders.id
+            FROM object_view INNER JOIN shaders ON object_view.id = shaders.id
         ''')
         cursor.execute('''
             CREATE VIEW view_breakdown_shaders AS
@@ -967,14 +1021,14 @@ class AudioClipHandler(BaseHandler):
         cursor.execute('''
             CREATE VIEW audio_clip_view AS
             SELECT
-                objects.*,
+                object_view.*,
                 audio_clips.bits_per_sample,
                 audio_clips.frequency,
                 audio_clips.channels,
                 audio_load_types.type,
                 audio_formats.format
-            FROM objects
-            INNER JOIN audio_clips ON objects.id = audio_clips.id
+            FROM object_view
+            INNER JOIN audio_clips ON object_view.id = audio_clips.id
             LEFT JOIN audio_load_types ON audio_clips.load_type = audio_load_types.id
             LEFT JOIN audio_formats ON audio_clips.format = audio_formats.id
         ''')
@@ -1034,9 +1088,9 @@ class AnimationClipHandler(BaseHandler):
         cursor.execute('''
             CREATE VIEW animation_view AS
             SELECT
-                objects.*,
+                object_view.*,
                 animation_clips.legacy
-            FROM objects INNER JOIN animation_clips ON objects.id = animation_clips.id
+            FROM object_view INNER JOIN animation_clips ON object_view.id = animation_clips.id
         ''')
 
 class IdGenerator(object):
