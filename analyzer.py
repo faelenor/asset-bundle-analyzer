@@ -10,6 +10,7 @@ import subprocess
 import fnmatch
 import uuid
 
+
 def main():
     arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     arg_parser.add_argument("tool_path", help="path to Unity tools")
@@ -81,9 +82,11 @@ def main():
 
     db.close()
 
+
 # Named tuple to store object fields.
 ParsedField = collections.namedtuple("ParsedField", "level name value type")
 Field = collections.namedtuple("Field", "type value")
+
 
 class Parser(object):
     def __init__(self, file_index):
@@ -370,6 +373,7 @@ class Parser(object):
 
         return None
 
+
 class ObjectProcessor(object):
     def __init__(self, file_index):
         
@@ -387,6 +391,7 @@ class ObjectProcessor(object):
             "Shader": ShaderHandler(self._id_generator, self._file_index),
             "AnimationClip": AnimationClipHandler(self._id_generator, self._file_index),
             "AudioClip": AudioClipHandler(self._id_generator, self._file_index),
+            "AssetBundle": AssetBundleHandler(self._id_generator, self._file_index)
         }
         self._default_handler = DefaultHandler(self._id_generator, self._file_index)
 
@@ -408,7 +413,7 @@ class ObjectProcessor(object):
 
             # Call type specific handler.
             handler = self._type_handlers.get(typename, self._default_handler)
-            name, size, references, serialized_fields = handler.process(current_id, obj["Content"], cursor)
+            name, size, references, serialized_fields = handler.process(current_id, obj["Content"], cursor, bundle_id)
 
             # Add type if new.
             if class_id not in self._types:
@@ -577,13 +582,14 @@ class ObjectProcessor(object):
 
         db.commit()
 
+
 # Base type handler class.
 class BaseHandler(object):
     def __init__(self, id_generator, file_index):
         self._id_generator = id_generator
         self._file_index = file_index
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         # Returns a tuple:
         # (name, size, references, field_count)
         # See _recursive_process for details.
@@ -708,11 +714,12 @@ class BaseHandler(object):
                 return 0
         return size
 
+
 class DefaultHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(DefaultHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj.get("m_Name")
         name = "" if not name else name.value
 
@@ -721,11 +728,12 @@ class DefaultHandler(BaseHandler):
     def init_database(self, cursor):
         pass
 
+
 class MeshHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(MeshHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         compression = obj["m_MeshCompression"].value
         rw_enabled = obj["m_IsReadable"].value
@@ -781,11 +789,12 @@ class MeshHandler(BaseHandler):
             SELECT * FROM mesh_view WHERE rw_enabled = 1
         ''')
 
+
 class Texture2DHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(Texture2DHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         size = obj["m_CompleteImageSize"].value
         format = obj["m_TextureFormat"].value
@@ -911,11 +920,12 @@ class Texture2DHandler(BaseHandler):
             SELECT * FROM texture_view WHERE mip_count > 1
         ''')
 
+
 class ShaderHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(ShaderHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_ParsedForm"].value["m_Name"].value
         properties = len(obj["m_ParsedForm"].value["m_PropInfo"].value["m_Props"].value)
         sub_shaders = obj["m_ParsedForm"].value["m_SubShaders"].value
@@ -962,11 +972,12 @@ class ShaderHandler(BaseHandler):
             ORDER BY total_size DESC, instances DESC
         ''')
 
+
 class AudioClipHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(AudioClipHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         size = obj["m_Resource"].value["m_Size"].value
 
@@ -1058,11 +1069,12 @@ class AudioClipHandler(BaseHandler):
             WHERE (type = "Streaming" AND size < 1024*1024) OR (type <> "Streaming" AND size > 1024*1024)
         ''')
 
+
 class AnimationClipHandler(BaseHandler):
     def __init__(self, id_generator, file_index):
         super(AnimationClipHandler, self).__init__(id_generator, file_index)
 
-    def process(self, current_id, obj, cursor):
+    def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         legacy = obj["m_Legacy"].value
 
@@ -1093,6 +1105,49 @@ class AnimationClipHandler(BaseHandler):
             FROM object_view INNER JOIN animation_clips ON object_view.id = animation_clips.id
         ''')
 
+
+class AssetBundleHandler(BaseHandler):
+    def __init__(self, id_generator, file_index):
+        super(AssetBundleHandler, self).__init__(id_generator, file_index)
+
+    def process(self, current_id, obj, cursor, bundle_id):
+        name = obj["m_Name"].value
+        
+        for key, asset in obj["m_Container"].value.iteritems():
+            if "data" in key:
+                pptr = asset.value["second"].value["asset"]
+                obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
+
+                cursor.execute('''
+                    INSERT INTO assets(bundle_id, name, obj_id)
+                        VALUES(?,?,?)
+                ''', (
+                    bundle_id,
+                    asset.value["first"].value,
+                    obj_id)
+                )
+
+        return (name,) + self._recursive_process(obj, "")
+
+    def init_database(self, cursor):
+        cursor.execute('''
+            CREATE TABLE assets(
+                bundle_id INTEGER,
+                name TEXT,
+                obj_id INTEGER,
+                PRIMARY KEY (bundle_id, obj_id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE VIEW asset_view AS
+            SELECT
+                assets.name AS asset,
+                object_view.*
+            FROM assets
+            INNER JOIN object_view ON object_view.id = assets.obj_id
+        ''')
+
+
 class IdGenerator(object):
     # Helper class used to generate unique ID for objects.
     def __init__(self):
@@ -1102,11 +1157,12 @@ class IdGenerator(object):
     def get_id(self, file_id, object_id):
         # Try to get an existing id.
         _id = self._id_map.get((file_id, object_id))
-        if not _id:
+        if _id is None:
             # Otherwise create a new.
             _id = len(self._id_map)
             self._id_map[(file_id, object_id)] = _id
         return _id
+
 
 class FileIndex(object):
     # Helper class used to generate unique ID for files.
@@ -1162,6 +1218,7 @@ class FileIndex(object):
             self._db.commit()
 
         return index
+
 
 if __name__ == '__main__':  
     main()
