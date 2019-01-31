@@ -1016,6 +1016,20 @@ class AudioClipHandler(BaseHandler):
             (9, "ATRAC9"),
         ]
         cursor.execute('''
+            CREATE TABLE audio_load_types(
+                id INTEGER,
+                type TEXT,
+                PRIMARY KEY (id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE audio_formats(
+                id INTEGER,
+                format TEXT,
+                PRIMARY KEY (id)
+            )
+        ''')
+        cursor.execute('''
             CREATE TABLE audio_clips(
                 id INTEGER,
                 bits_per_sample INTEGER,
@@ -1043,23 +1057,9 @@ class AudioClipHandler(BaseHandler):
             LEFT JOIN audio_load_types ON audio_clips.load_type = audio_load_types.id
             LEFT JOIN audio_formats ON audio_clips.format = audio_formats.id
         ''')
-        cursor.execute('''
-            CREATE TABLE audio_load_types(
-                id INTEGER,
-                type TEXT,
-                PRIMARY KEY (id)
-            )
-        ''')
         cursor.executemany('''
             INSERT INTO audio_load_types values (?,?)
         ''', audio_load_types)
-        cursor.execute('''
-            CREATE TABLE audio_formats(
-                id INTEGER,
-                format TEXT,
-                PRIMARY KEY (id)
-            )
-        ''')
         cursor.executemany('''
             INSERT INTO audio_formats values (?,?)
         ''', audio_formats)
