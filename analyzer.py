@@ -314,7 +314,10 @@ class Parser(object):
         elif typename in ["int", "unsigned int", "SInt64", "UInt64", "SInt32", "UInt32", "SInt16", "UInt16", "SInt8", "UInt8"]:
             return int(value)
         elif typename == "float" or typename == "double":
-            return float(value)
+            try:
+                return float(value)
+            except ValueError:
+                return float("nan")
         elif typename == "Vector4f":
             match = re.match(r"\((\S+) (\S+) (\S+) (\S+)\)", value)
             return [
