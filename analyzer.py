@@ -876,6 +876,13 @@ class Texture2DHandler(BaseHandler):
             (65, "ETC2_RGBA8Crunched"),
         ]
         cursor.execute('''
+            CREATE TABLE texture_formats(
+                id INTEGER,
+                format TEXT,
+                PRIMARY KEY (id)
+            )
+        ''')
+        cursor.execute('''
             CREATE TABLE textures(
                 id INTEGER,
                 width INTEGER,
@@ -900,13 +907,6 @@ class Texture2DHandler(BaseHandler):
             FROM object_view
             INNER JOIN textures ON object_view.id = textures.id
             LEFT JOIN texture_formats ON textures.format = texture_formats.id
-        ''')
-        cursor.execute('''
-            CREATE TABLE texture_formats(
-                id INTEGER,
-                format TEXT,
-                PRIMARY KEY (id)
-            )
         ''')
         cursor.executemany('''
             INSERT INTO texture_formats values (?,?)
