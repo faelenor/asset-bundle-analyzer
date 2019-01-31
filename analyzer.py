@@ -461,7 +461,7 @@ class ObjectProcessor(object):
                 PRIMARY KEY (class_id)
             )
         ''')
-        
+
         ##### Asset Bundles #####
         cursor.execute('''
             CREATE TABLE asset_bundles(
@@ -470,18 +470,6 @@ class ObjectProcessor(object):
                 file_size INTEGER,
                 PRIMARY KEY (id)
             )
-        ''')
-        cursor.execute('''
-            CREATE VIEW asset_bundle_view AS
-            SELECT
-                ab.id,
-                ab.name,
-                ab.file_size,
-                sum(o.size) as uncompressed_size,
-                sum(o.size)*1.0 / ab.file_size as compression_ratio
-            FROM asset_bundles ab
-            INNER JOIN objects o ON o.bundle_id = ab.id
-            GROUP BY ab.name
         ''')
 
         ##### Objects #####
@@ -575,6 +563,18 @@ class ObjectProcessor(object):
             INNER JOIN objects o ON o.id = r.referrer_id
             INNER JOIN object_view go ON o.game_object = go.id
             WHERE m.name = "Default-Material"
+        ''')
+        cursor.execute('''
+            CREATE VIEW asset_bundle_view AS
+            SELECT
+                ab.id,
+                ab.name,
+                ab.file_size,
+                sum(o.size) as uncompressed_size,
+                sum(o.size)*1.0 / ab.file_size as compression_ratio
+            FROM asset_bundles ab
+            INNER JOIN objects o ON o.bundle_id = ab.id
+            GROUP BY ab.name
         ''')
 
         for h in self._type_handlers.itervalues():
