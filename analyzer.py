@@ -302,6 +302,12 @@ class Parser(object):
 
         return obj
 
+    def to_float(self, value):
+        try:
+            return float(value)
+        except ValueError:
+            return float("nan")
+
     def _typecast(self, value, typename):
         # Converts a string to the right data type.
 
@@ -314,40 +320,37 @@ class Parser(object):
         elif typename in ["int", "unsigned int", "SInt64", "UInt64", "SInt32", "UInt32", "SInt16", "UInt16", "SInt8", "UInt8"]:
             return int(value)
         elif typename == "float" or typename == "double":
-            try:
-                return float(value)
-            except ValueError:
-                return float("nan")
+            return self.to_float(value)
         elif typename == "Vector4f":
             match = re.match(r"\((\S+) (\S+) (\S+) (\S+)\)", value)
             return [
-                Field("float", float(match.group(1))),
-                Field("float", float(match.group(2))),
-                Field("float", float(match.group(3))),
-                Field("float", float(match.group(4))),
+                Field("float", self.to_float((match.group(1))),
+                Field("float", self.to_float((match.group(2))),
+                Field("float", self.to_float((match.group(3))),
+                Field("float", self.to_float((match.group(4))),
             ]
         elif typename == "Vector3f":
             match = re.match(r"\((\S+) (\S+) (\S+)\)", value)
             return [
-                Field("float", float(match.group(1))),
-                Field("float", float(match.group(2))),
-                Field("float", float(match.group(3))),
+                Field("float", self.to_float((match.group(1))),
+                Field("float", self.to_float((match.group(2))),
+                Field("float", self.to_float((match.group(3))),
             ]
         elif typename == "Vector2f":
             match = re.match(r"\((\S+) (\S+)\)", value)
             return [
-                Field("float", float(match.group(1))),
-                Field("float", float(match.group(2))),
+                Field("float", self.to_float((match.group(1))),
+                Field("float", self.to_float((match.group(2))),
             ]
         elif typename == "bool":
             return int(value) == 1
         elif typename == "ColorRGBA":
             match = re.match(r"\((\S+) (\S+) (\S+) (\S+)\)", value)
             return [
-                Field("float", float(match.group(1))),
-                Field("float", float(match.group(2))),
-                Field("float", float(match.group(3))),
-                Field("float", float(match.group(4))),
+                Field("float", self.to_float((match.group(1))),
+                Field("float", self.to_float((match.group(2))),
+                Field("float", self.to_float((match.group(3))),
+                Field("float", self.to_float((match.group(4))),
             ]
         elif typename == "GUID":
             return uuid.UUID(value)
