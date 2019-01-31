@@ -461,6 +461,28 @@ class ObjectProcessor(object):
                 PRIMARY KEY (class_id)
             )
         ''')
+        
+        ##### Asset Bundles #####
+        cursor.execute('''
+            CREATE TABLE asset_bundles(
+                id INTEGER,
+                name TEXT,
+                file_size INTEGER,
+                PRIMARY KEY (id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE VIEW asset_bundle_view AS
+            SELECT
+                ab.id,
+                ab.name,
+                ab.file_size,
+                sum(o.size) as uncompressed_size,
+                sum(o.size)*1.0 / ab.file_size as compression_ratio
+            FROM asset_bundles ab
+            INNER JOIN objects o ON o.bundle_id = ab.id
+            GROUP BY ab.name
+        ''')
 
         ##### Objects #####
         # Note: The natural primary key for objects is a composite of file + object_id, but
@@ -527,28 +549,6 @@ class ObjectProcessor(object):
         ''')
         cursor.execute('''
             CREATE INDEX idx_refs_referees ON refs (referee_id)
-        ''')
-
-        ##### Asset Bundles #####
-        cursor.execute('''
-            CREATE TABLE asset_bundles(
-                id INTEGER,
-                name TEXT,
-                file_size INTEGER,
-                PRIMARY KEY (id)
-            )
-        ''')
-        cursor.execute('''
-            CREATE VIEW asset_bundle_view AS
-            SELECT
-                ab.id,
-                ab.name,
-                ab.file_size,
-                sum(o.size) as uncompressed_size,
-                sum(o.size)*1.0 / ab.file_size as compression_ratio
-            FROM asset_bundles ab
-            INNER JOIN objects o ON o.bundle_id = ab.id
-            GROUP BY ab.name
         ''')
 
         ##### Views #####
