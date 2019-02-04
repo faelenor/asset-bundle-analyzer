@@ -499,17 +499,14 @@ class ObjectProcessor(object):
         ''')
         cursor.execute('''
             CREATE VIEW object_view AS
-            SELECT
-                objects.id,
-                objects.object_id,
-                asset_bundles.name AS bundle,
-                files.name AS file,
-                objects.class_id,
-                types.name AS type,
-                objects.name,
-                objects.game_object,
-                objects.size,
-                objects.serialized_fields
+            SELECT objects.id, objects.object_id, asset_bundles.name AS bundle, files.name AS file, objects.class_id, types.name AS type, objects.name, objects.game_object, objects.size,
+            CASE 
+                WHEN size < 1024 THEN printf("%!5.1f B", size * 1.0)
+                WHEN size >=  1024 AND size < (1024 * 1024) THEN printf("%!5.1f KB", size / 1024.0)
+                WHEN size >= (1024 * 1024)  AND size < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", size / 1024.0 / 1024)
+                WHEN size >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", size / 1024.0 / 1024 / 1024)
+            END AS pretty_size,
+            objects.serialized_fields
             FROM objects
             INNER JOIN types ON objects.class_id = types.class_id
             INNER JOIN files ON objects.file = files.id
@@ -548,19 +545,35 @@ class ObjectProcessor(object):
         ##### Views #####
         cursor.execute('''
             CREATE VIEW view_breakdown_by_type AS
-            SELECT type, count(*) AS count, sum(size) AS size
-            FROM object_view
+            SELECT *,
+            CASE
+                WHEN byte_size < 1024 THEN printf("%!5.1f B", byte_size * 1.0)
+                WHEN byte_size >=  1024 AND byte_size < (1024 * 1024) THEN printf("%!5.1f KB", byte_size / 1024.0)
+                WHEN byte_size >= (1024 * 1024)  AND byte_size < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", byte_size / 1024.0 / 1024)
+                WHEN byte_size >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", byte_size / 1024.0 / 1024 / 1024)
+            END AS pretty_size
+            FROM
+			(SELECT type, count(*) AS count, sum(size) AS byte_size
+            FROM object_view AS o
             GROUP BY type
-            ORDER BY size DESC, count DESC
+            ORDER BY byte_size DESC, count DESC)
         ''')
+        # TODO: add other exception (components)
         cursor.execute('''
             CREATE VIEW view_potential_duplicates AS
-            SELECT COUNT(DISTINCT bundle) AS instances, SUM(size) AS total_size, name, type, REPLACE(GROUP_CONCAT(DISTINCT bundle), ",", CHAR(13)) AS in_bundles
+            SELECT COUNT(DISTINCT bundle) AS instances,
+            CASE
+                WHEN sum(size) < 1024 THEN printf("%!5.1f B", sum(size) * 1.0)
+                WHEN sum(size) >=  1024 AND sum(size) < (1024 * 1024) THEN printf("%!5.1f KB", sum(size) / 1024.0)
+                WHEN sum(size) >= (1024 * 1024)  AND sum(size) < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", sum(size) / 1024.0 / 1024)
+                WHEN sum(size) >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", sum(size) / 1024.0 / 1024 / 1024)
+            END AS pretty_size,
+            sum(size) AS size, name, type, REPLACE(GROUP_CONCAT(DISTINCT bundle), ",", CHAR(13)) AS in_bundles
             FROM object_view
             WHERE size > 0 AND NOT (type = "Texture2D" AND name LIKE ("Lightmap%_comp_light"))
             GROUP BY name, type, size
             HAVING instances > 1
-            ORDER BY total_size DESC, instances DESC
+            ORDER BY size DESC, instances DESC
         ''')
         cursor.execute('''
             CREATE VIEW view_references_to_default_material AS
@@ -576,7 +589,19 @@ class ObjectProcessor(object):
                 ab.id,
                 ab.name,
                 ab.file_size,
+                CASE
+                    WHEN ab.file_size < 1024 THEN printf("%!5.1f B", ab.file_size * 1.0)
+                    WHEN ab.file_size >=  1024 AND ab.file_size < (1024 * 1024) THEN printf("%!5.1f KB", ab.file_size / 1024.0)
+                    WHEN ab.file_size >= (1024 * 1024)  AND ab.file_size < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", ab.file_size / 1024.0 / 1024)
+                    WHEN ab.file_size >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", ab.file_size / 1024.0 / 1024 / 1024)
+                END AS pretty_file_size,
                 sum(o.size) as uncompressed_size,
+                CASE
+                    WHEN sum(o.size) < 1024 THEN printf("%!5.1f B", sum(o.size) * 1.0)
+                    WHEN sum(o.size) >=  1024 AND sum(o.size) < (1024 * 1024) THEN printf("%!5.1f KB", sum(o.size) / 1024.0)
+                    WHEN sum(o.size) >= (1024 * 1024)  AND sum(o.size) < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", sum(o.size) / 1024.0 / 1024)
+                    WHEN sum(o.size) >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", sum(o.size) / 1024.0 / 1024 / 1024)
+                END AS pretty_uncompressed_size,
                 sum(o.size)*1.0 / ab.file_size as compression_ratio
             FROM asset_bundles ab
             INNER JOIN objects o ON o.bundle_id = ab.id
@@ -972,7 +997,14 @@ class ShaderHandler(BaseHandler):
         ''')
         cursor.execute('''
             CREATE VIEW view_breakdown_shaders AS
-            SELECT name, count(*) AS instances, sum(size) AS total_size, GROUP_CONCAT(bundle, CHAR(13)) AS in_bundles
+            SELECT name, count(*) AS instances,
+            CASE
+                WHEN sum(size) < 1024 THEN printf("%!5.1f B", sum(size) * 1.0)
+                WHEN sum(size) >=  1024 AND sum(size) < (1024 * 1024) THEN printf("%!5.1f KB", sum(size) / 1024.0)
+                WHEN sum(size) >= (1024 * 1024)  AND sum(size) < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", sum(size) / 1024.0 / 1024)
+                WHEN sum(size) >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", sum(size) / 1024.0 / 1024 / 1024)
+            END AS pretty_total_size,
+            sum(size) AS total_size, GROUP_CONCAT(bundle, CHAR(13)) AS in_bundles
             FROM shader_view
             GROUP BY name
             ORDER BY total_size DESC, instances DESC
