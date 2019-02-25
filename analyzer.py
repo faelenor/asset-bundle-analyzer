@@ -1151,19 +1151,19 @@ class AssetBundleHandler(BaseHandler):
     def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         
-        for key, asset in obj["m_Container"].value.iteritems():
-            if "data" in key:
-                pptr = asset.value["second"].value["asset"]
-                obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
+        #for key, asset in obj["m_Container"].value.iteritems():
+        #    if "data" in key:
+        #        pptr = asset.value["second"].value["asset"]
+        #        obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
 
-                cursor.execute('''
-                    INSERT INTO assets(bundle_id, name, obj_id)
-                        VALUES(?,?,?)
-                ''', (
-                    bundle_id,
-                    asset.value["first"].value,
-                    obj_id)
-                )
+        #        cursor.execute('''
+        #            INSERT INTO assets(bundle_id, name, obj_id)
+        #                VALUES(?,?,?)
+        #        ''', (
+        #            bundle_id,
+        #            asset.value["first"].value,
+        #            obj_id)
+        #        )
 
         return (name,) + self._recursive_process(obj, "")
 
