@@ -9,17 +9,23 @@ import argparse
 import subprocess
 import fnmatch
 import uuid
+from multiprocessing import Process
 
+arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+arg_parser.add_argument("tool_path", help="path to Unity tools")
+arg_parser.add_argument("path", help="path of the asset bundle folder")
+arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
+arg_parser.add_argument("-o", "--output", default="database", help="name of the output database file")
+arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
+arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
+arg_parser.add_argument("-d", "--debug", help="enable pdb debugger to break when ctrl-c is pressed", action='store_true')
+arg_parser.add_argument("-v", "--verbose", help="display verbose script logging", action='store_true')
+args = arg_parser.parse_args()
 
 def main():
-    arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    arg_parser.add_argument("tool_path", help="path to Unity tools")
-    arg_parser.add_argument("path", help="path of the asset bundle folder")
-    arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
-    arg_parser.add_argument("-o", "--output", default="database", help="name of the output database file")
-    arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
-    arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
-    args = arg_parser.parse_args()
+    if (args.debug == True):
+        import signal
+        signal.signal(signal.SIGINT, debug_signal_handler)
 
     if os.path.exists(args.output):
         os.remove(args.output)
@@ -37,12 +43,10 @@ def main():
             for f in files:
                 if fnmatch.fnmatch(f, args.pattern):
                     filepath = os.path.join(root, f)
+                    ret_code = 0
 
                     # WebExtract the asset bundle.
-                    with open(os.devnull, 'wb') as devnull:
-                        p = subprocess.Popen([os.path.join(args.tool_path, "WebExtract"), filepath], stdout=devnull, stderr=devnull)
-                        p.communicate()
-                        ret_code = p.returncode
+                    run_tool_with_timeout("WebExtract", filepath, ret_code, 60, 0)
 
                     # Iterate extracted files.
                     datapath = filepath + "_data"
@@ -57,20 +61,16 @@ def main():
                         ''', (bundle_id, bundle_name, bundle_size))
                         db.commit()
 
-                        print("Processing " + bundle_name)
+                        debug_print("Processing " + bundle_name, 1)
 
                         for f2 in os.listdir(datapath):
                             datafile = os.path.join(datapath, f2)
 
-                            # Try binary2text on every extracted file.
-                            with open(os.devnull, 'wb') as devnull:
-                                p = subprocess.Popen([os.path.join(args.tool_path, "binary2text"), datafile], stdout=devnull, stderr=devnull)
-                                p.communicate()
-                                ret_code = p.returncode
+                            run_tool("binary2text", datafile, ret_code, 2)
 
                             # Parse and process file.
                             if ret_code == 0 and os.path.isfile(datafile + ".txt"):
-                                print("Parsing " + f2)
+                                debug_print("Parsing " + f2, 3)
                                 p = Parser(file_index);
                                 objs = p.parse(datafile + ".txt")
                                 processor.process_objects(bundle_id, objs, db, f2, args.store_raw)
@@ -78,7 +78,7 @@ def main():
                         if not args.keep_temp:
                             shutil.rmtree(datapath)
     else:
-        print "Path is not a directory!"
+        print ("Path is not a directory!")
 
     db.close()
 
@@ -231,8 +231,8 @@ class Parser(object):
                         else:
                             # Make sure that indentation level is one higher.
                             if item_field.level != level+1:
-                                print field
-                                print item_field
+                                print (field)
+                                print (item_field)
                                 raise Exception("Error parsing array!")
                             
                             # Add vector to object.
@@ -404,9 +404,13 @@ class ObjectProcessor(object):
     def process_objects(self, bundle_id, objs, db, file, store_raw):
         cursor = db.cursor()
         file_id = self._file_index.get_id(file)
+
+        count = 0
         
         # Iterate on objects.
         for object_id, obj in objs.iteritems():
+            count += 1
+
             # Get unique id for this object.
             current_id = self._id_generator.get_id(file_id, object_id)
 
@@ -448,6 +452,9 @@ class ObjectProcessor(object):
                         VALUES(?,?,?,?,?)
                 ''', (current_id, ref[0], ref[1], ref[2], ref[3]))
         db.commit()
+
+        if(args.verbose == True):
+            debug_print("{0} objects".format( count ), 4)
 
     def _add_type(self, cursor, class_id, typename):
         cursor.execute('''
@@ -692,7 +699,7 @@ class BaseHandler(object):
             else:
                 raise Exception("Unexpected type encountered when walking object")
         except:
-            print obj
+            print (obj)
             raise
 
         return (size, references, count)
@@ -1257,6 +1264,44 @@ class FileIndex(object):
 
         return index
 
+# if running in debug, function to trap stack when breaking 
+def debug_signal_handler(signal, frame):
+    import pdb
+    pdb.set_trace()
+
+def run_tool_with_timeout(tool,filepath,ret_code,time_out,level=0):
+    p = Process(run_tool(tool, filepath, ret_code, level))
+    p.start()
+
+    # Wait for 60 seconds or until process finishes
+    p.join(time_out)
+
+    if p.is_alive():
+        print "{0} timeout".format(tool)
+
+        # Terminate
+        p.terminate()
+        p.join()
+
+# function for spawned process to run WebExtract
+def run_tool(tool, filepath, ret_code, level=0):
+    with open(os.devnull, 'wb') as devnull:
+        path = os.path.join(args.tool_path, tool)
+        if(args.verbose == True):
+            debug_print("{0} {1}".format(tool, filepath), level)
+
+        p = subprocess.Popen([path, filepath], stdout=devnull, stderr=devnull)
+        p.communicate()
+        ret_code = p.returncode
+
+# print some output with an optional indent level
+def debug_print(msg,level=0):
+    indent = ""
+    if(args.verbose == True):
+        indent = "-> "
+        for x in range(level): 
+            indent = "-" + indent
+    print("{0}{1}".format(indent, msg))
 
 if __name__ == '__main__':  
     main()
