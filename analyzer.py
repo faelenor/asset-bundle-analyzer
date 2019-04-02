@@ -406,6 +406,7 @@ class ObjectProcessor(object):
         file_id = self._file_index.get_id(file)
 
         count = 0
+        error_count = 0
         
         # Iterate on objects.
         for object_id, obj in objs.iteritems():
@@ -413,6 +414,18 @@ class ObjectProcessor(object):
 
             # Get unique id for this object.
             current_id = self._id_generator.get_id(file_id, object_id)
+
+            cursor.execute("SELECT * FROM objects WHERE id = ?", (current_id,))
+            rows = cursor.fetchall()
+
+            if len(rows) != 0:
+                error_count += 1
+                print ("Ignoring duplicate object {0}!".format(object_id))
+                if error_count > 10:
+                    print ("Too many duplicate objects, aborting file {0}!".format(file))
+                    print ("Are you trying to analyze multiple variants of the same bundles? You should analyze one set of bundles at a time.")
+                    break
+                continue
 
             class_id = obj["ClassID"]
             typename = obj["Type"]
