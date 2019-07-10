@@ -365,13 +365,13 @@ class Parser(object):
 
         # Determine indentation level (count number of tabs).
         level = 0
-        while line[level] == '\t':
+        while level < len(line) and line[level] == '\t':
             level += 1
         match = self._field_regex.match(line[level:])
 
         if match:
             return ParsedField(level, match.group(1), match.group(2) if match.group(2) != " " else None, match.group(3))
-        
+
         # Try to parse array data.
         match = re.match(r"data \s?\((\S+\s?\S*)\) #\d+: .*", line[level:])
         if match:
