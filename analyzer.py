@@ -210,24 +210,21 @@ class Parser(object):
 
                     # If array is not empty, parse content.
                     if size > 0:
-                        # Try to get the first item in the array.
-                        #if self._index < len(self._fields):
-                        #    item_field = self._fields[self._index]
-                        #else:
-                        #    item_field = None
-
                         item_field = self._fields[self._index]
 
                         if item_field.name == "<vector data>":
-                            # Case for vector data arrays. We don't parse them and just
-                            # store them as a <vector data> type and with value (size, type)
-                            obj[field.name] = Field("<vector data>", (size, item_field.type))
-
-                            # Skip all the vector data lines.
+                            vector = item_field.value.split(" ")
+                            # Case for POD vector arrays.
+                            # Get all the vector lines.
                             while True:
                                 self._index += 1
+                                # Break if we reached the end of <vector data> fields.
                                 if self._index == len(self._fields) or self._fields[self._index].name != "<vector data>":
                                     break
+                                vector.extend(self._fields[self._index].value.split(" "))
+
+                            obj[field.name] = Field("pod_vector:" + item_field.type, map(lambda x: self._typecast(x, item_field.type), vector))
+
                         else:
                             # Make sure that indentation level is one higher.
                             if item_field.level != level+1:
@@ -239,7 +236,7 @@ class Parser(object):
                             vector = []
                             obj[field.name] = Field("vector", vector)
 
-                            # No value means a nested object (Case for "data  (Type)" element).
+                            # No value means a nested object (Case for "data (Type)" element).
                             if not item_field.value:
                                 # Iterate over array elements.
                                 for i in xrange(size):
@@ -284,21 +281,21 @@ class Parser(object):
                     })
                 else:
                     field_name = field.name
+                    
+                    # Special case because for some reason, lists are not always serialized as vectors.
+                    if field_name in obj:
+                        i = 0
+                        while "{0}/{1}".format(field_name, i) in obj:
+                            i += 1
+                        field_name = "{0}/{1}".format(field_name, i)
 
-                    # Special case for VertexData not having the same syntax.
-                    if field_name != "<vector data>":
-                        # Special case because for some reason, lists are not always serialized as vectors.
-                        if field_name in obj:
-                            i = 0
-                            while "{0}/{1}".format(field_name, i) in obj:
-                                i += 1
-                            field_name = "{0}/{1}".format(field_name, i)
-
-                        # Recursively parse nested object.
-                        obj[field_name] = Field(field.type, self._parse_obj(level+1))
+                    # Recursively parse nested object.
+                    obj[field_name] = Field(field.type, self._parse_obj(level+1))
             else:
-                # Simple type, just cast it.
-                obj[field.name] = Field(field.type, self._typecast(field.value, field.type))
+                # Special case for Vertex Data not having the same syntax.
+                if field.name != "<vector data>":
+                    # Simple type, just cast it.
+                    obj[field.name] = Field(field.type, self._typecast(field.value, field.type))
 
         return obj
 
@@ -373,9 +370,9 @@ class Parser(object):
             return ParsedField(level, match.group(1), match.group(2) if match.group(2) != " " else None, match.group(3))
         
         # Try to parse array data.
-        match = re.match(r"data \s?\((\S+\s?\S*)\) #\d+: .*", line[level:])
+        match = re.match(r"data \s?\((\S+\s?\S*)\) #\d+: (.*)", line[level:])
         if match:
-            return ParsedField(level, "<vector data>", None, match.group(1))
+            return ParsedField(level, "<vector data>", match.group(2), match.group(1))
 
         return None
 
@@ -699,8 +696,8 @@ class BaseHandler(object):
                         ))
                     count += 1
                     size += 12 # Size of PPtr?
-                elif obj.type == "<vector data>":
-                    size += self._vector_size(obj)
+                elif obj.type.startswith("pod_vector:"):
+                    size += BaseHandler._get_size(obj)
                 elif type(obj.value) is dict or type(obj.value) is list:
                     # Recursively process object.
                     s, r, c = self._recursive_process(obj.value, field_path)
@@ -710,30 +707,12 @@ class BaseHandler(object):
                 else:
                     size += BaseHandler._get_size(obj)
             else:
-                raise Exception("Unexpected type encountered when walking object")
+                raise Exception("Unexpected type encountered when processing object: " + type(obj).__name__)
         except:
             print (obj)
             raise
 
         return (size, references, count)
-
-    @staticmethod
-    def _vector_size(vector):
-        l = BaseHandler._vector_len(vector)
-        if l > 0:
-            # Type is stored in second component of vector value.
-            return l * BaseHandler._get_size(Field(vector.value[1], None))
-        return 0
-
-    @staticmethod
-    def _vector_len(vector):
-        if vector.type == "vector":
-            return len(vector.value)
-        elif vector.type == "<vector data>":
-            # Data size is stored in the first component of the value.
-            return vector.value[0]
-        else:
-            raise Exception("Wrong array type")
 
     @staticmethod
     def _get_size(field):
@@ -748,6 +727,7 @@ class BaseHandler(object):
             "UInt16": 2,
             "SInt8": 1,
             "UInt8": 1,
+            "char": 1,
             "float": 4,
             "double": 8,
             "Vector4f": 16,
@@ -760,6 +740,9 @@ class BaseHandler(object):
         if size is None:
             if field.type == "string":
                 size = len(field.value)
+            elif field.type.startswith("pod_vector:"):
+                size = len(field.value) * size_map[field.type[11:]]
+                return size
             else:
                 print("Warning: unhandled type {0}!".format(field.type))
                 return 0
@@ -793,13 +776,19 @@ class MeshHandler(BaseHandler):
 
         if compression == 0:
             # Index buffer size depends on the format which is either 16 or 32 bits per index.
-            index_buffer_size = BaseHandler._vector_len(obj["m_IndexBuffer"])
+            index_buffer_size = BaseHandler._get_size(obj["m_IndexBuffer"])
             bytes_per_index = 2 if obj["m_IndexFormat"].value == 0 else 4
             indices = index_buffer_size / bytes_per_index
             vertices = obj["m_VertexData"].value["m_VertexCount"].value
 
             # Ugly hack because vertex data is stored in a way that doesn't respect the syntax of the document.
             vertex_size = obj["m_VertexData"].value["size"].value
+
+            # If mesh data is in a stream file, the size is 0.
+            if (vertex_size == 0):
+                # Get the size of streamed data instead.
+                vertex_size = obj["m_StreamData"].value["size"].value
+
         else:
             compressed_mesh = obj["m_CompressedMesh"].value
             vertices = compressed_mesh["m_Vertices"].value["m_NumItems"].value / 3
@@ -980,30 +969,134 @@ class ShaderHandler(BaseHandler):
         name = obj["m_ParsedForm"].value["m_Name"].value
         properties = len(obj["m_ParsedForm"].value["m_PropInfo"].value["m_Props"].value)
         sub_shaders = obj["m_ParsedForm"].value["m_SubShaders"].value
-        sub_programs = 0
+        total_subprograms = 0
+        unique_progs = set()
+        unique_keywords = set()
 
         # Count number of sub shaders and sub programs.
         for ss in sub_shaders:
             passes = ss["data"].value["m_Passes"].value
+            pass_num = 0
             for p in passes:
-                sub_programs += len(p["data"].value["progFragment"].value["m_SubPrograms"].value)
+                names = {}
+                for k, n in p["data"].value["m_NameIndices"].value.iteritems():
+                    if ("data" in k):
+                        names[n.value["second"].value] = n.value["first"].value
+                
+                # Process vertex sub programs.
+                sub_programs = p["data"].value["progVertex"].value["m_SubPrograms"].value
+                sp_num = 0
+                for sp in sub_programs:
+                    hw_tier = sp["data"].value["m_ShaderHardwareTier"].value
+                    gpu_program_type = sp["data"].value["m_GpuProgramType"].value
+                    keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    unique_progs.add(sp["data"].value["m_BlobIndex"].value)
+                    unique_keywords.update(keywords)
+
+                    cursor.execute('''
+                        INSERT INTO shader_subprograms(shader, pass, subprogram, hw_tier, prog_type, type, keywords)
+                            VALUES(?,?,?,?,?,?,?)
+                    ''', (current_id, pass_num, sp_num, hw_tier, "vertex", gpu_program_type, ", ".join(keywords)))
+
+                    sp_num += 1
+                    total_subprograms += 1
+
+                # Process fragment sub programs.
+                sub_programs = p["data"].value["progFragment"].value["m_SubPrograms"].value
+                sp_num = 0
+                for sp in sub_programs:
+                    hw_tier = sp["data"].value["m_ShaderHardwareTier"].value
+                    gpu_program_type = sp["data"].value["m_GpuProgramType"].value
+                    keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    unique_progs.add(sp["data"].value["m_BlobIndex"].value)
+                    unique_keywords.update(keywords)
+
+                    cursor.execute('''
+                        INSERT INTO shader_subprograms(shader, pass, subprogram, hw_tier, prog_type, type, keywords)
+                            VALUES(?,?,?,?,?,?,?)
+                    ''', (current_id, pass_num, sp_num, hw_tier, "fragment", gpu_program_type, ", ".join(keywords)))
+
+                    sp_num += 1
+                    total_subprograms += 1
+
+                pass_num += 1
 
         cursor.execute('''
-            INSERT INTO shaders(id, properties, sub_shaders, sub_programs)
-                VALUES(?,?,?,?)
-        ''', (current_id, properties, len(sub_shaders), sub_programs))
+            INSERT INTO shaders(id, properties, sub_shaders, passes, sub_programs, unique_programs, keywords)
+                VALUES(?,?,?,?,?,?,?)
+        ''', (current_id, properties, len(sub_shaders), pass_num, total_subprograms, len(unique_progs), ", ".join(sorted(unique_keywords))))
 
         return (name,) + self._recursive_process(obj, "")
 
     def init_database(self, cursor):
+        program_types = [
+            ("Unknown", 0),
+            ("GLLegacy_Removed", 1),
+            ("GLES31AEP", 2),
+            ("GLES31", 3),
+            ("GLES3", 4),
+            ("GLES", 5),
+            ("GLCore32", 6),
+            ("GLCore41", 7),
+            ("GLCore43", 8),
+            ("DX9VertexSM20_Removed", 9),
+            ("DX9VertexSM30_Removed", 10),
+            ("DX9PixelSM20_Removed", 11),
+            ("DX9PixelSM30_Removed", 12),
+            ("DX10Level9Vertex_Removed", 13),
+            ("DX10Level9Pixel_Removed", 14),
+            ("DX11VertexSM40", 15),
+            ("DX11VertexSM50", 16),
+            ("DX11PixelSM40", 17),
+            ("DX11PixelSM50", 18),
+            ("DX11GeometrySM40", 19),
+            ("DX11GeometrySM50", 20),
+            ("DX11HullSM50", 21),
+            ("DX11DomainSM50", 22),
+            ("MetalVS", 23),
+            ("MetalFS", 24),
+            ("SPIRV", 25),
+            ("ConsoleVS", 26),
+            ("ConsoleFS", 27),
+            ("ConsoleHS", 28),
+            ("ConsoleDS", 29),
+            ("ConsoleGS", 30),
+        ]
+        cursor.execute('''
+            CREATE TABLE gpu_program_types(
+                id INTEGER,
+                type TEXT,
+                PRIMARY KEY (id)
+            )
+        ''')
+
+        cursor.executemany('''
+            INSERT INTO gpu_program_types (type, id) values (?,?)
+        ''', program_types)
         cursor.execute('''
             CREATE TABLE shaders(
                 id INTEGER,
                 properties INTEGER,
                 sub_shaders INTEGER,
+                passes INTEGER,
                 sub_programs INTEGER,
+                unique_programs INTEGER,
+                keywords INTEGER,
                 PRIMARY KEY (id),
                 FOREIGN KEY (id) references objects(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE shader_subprograms(
+                shader INTEGER,
+                pass INTEGER,
+                subprogram INTEGER,
+                hw_tier INTEGER,
+                prog_type TEXT,
+                type INTEGER,
+                keywords TEXT,
+                FOREIGN KEY (shader) references shaders(id),
+                FOREIGN KEY (type) references gpu_program_types(id)
             )
         ''')
         cursor.execute('''
@@ -1012,7 +1105,10 @@ class ShaderHandler(BaseHandler):
                 object_view.*,
                 shaders.properties,
                 shaders.sub_shaders,
-                shaders.sub_programs
+                shaders.passes,
+                shaders.sub_programs,
+                shaders.unique_programs,
+                shaders.keywords
             FROM object_view INNER JOIN shaders ON object_view.id = shaders.id
         ''')
         cursor.execute('''
@@ -1028,6 +1124,12 @@ class ShaderHandler(BaseHandler):
             FROM shader_view
             GROUP BY name
             ORDER BY total_size DESC, instances DESC
+        ''')
+        cursor.execute('''
+            CREATE VIEW shader_subprogram_view AS
+            SELECT s.*, pt.type AS api_type, sp.pass, sp.hw_tier, sp.prog_type, sp.keywords AS prog_keywords FROM shader_view s
+            LEFT JOIN shader_subprograms sp ON s.id = sp.shader
+            LEFT JOIN gpu_program_types pt ON pt.id = sp.type
         ''')
 
 
@@ -1171,19 +1273,19 @@ class AssetBundleHandler(BaseHandler):
     def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         
-        #for key, asset in obj["m_Container"].value.iteritems():
-        #    if "data" in key:
-        #        pptr = asset.value["second"].value["asset"]
-        #        obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
+        for key, asset in obj["m_Container"].value.iteritems():
+            if "data" in key:
+                pptr = asset.value["second"].value["asset"]
+                obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
 
-        #        cursor.execute('''
-        #            INSERT INTO assets(bundle_id, name, obj_id)
-        #                VALUES(?,?,?)
-        #        ''', (
-        #            bundle_id,
-        #            asset.value["first"].value,
-        #            obj_id)
-        #        )
+                cursor.execute('''
+                    INSERT INTO assets(bundle_id, name, obj_id)
+                        VALUES(?,?,?)
+                ''', (
+                    bundle_id,
+                    asset.value["first"].value,
+                    obj_id)
+                )
 
         return (name,) + self._recursive_process(obj, "")
 
