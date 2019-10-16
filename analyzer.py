@@ -624,6 +624,14 @@ class ObjectProcessor(object):
             INNER JOIN objects o ON o.bundle_id = ab.id
             GROUP BY ab.name
         ''')
+        cursor.execute('''
+            CREATE VIEW material_view AS
+            SELECT m.bundle, m.name material_name, s.name shader_name
+            FROM object_view m
+            INNER JOIN refs r ON r.referrer_id = m.id
+            INNER JOIN object_view s ON s.id = r.referee_id
+            WHERE m.type = "Material" AND s.type = "Shader"
+        ''')
 
         for h in self._type_handlers.itervalues():
             h.init_database(cursor)
