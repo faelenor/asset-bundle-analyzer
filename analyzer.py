@@ -997,7 +997,13 @@ class ShaderHandler(BaseHandler):
                 for sp in sub_programs:
                     hw_tier = sp["data"].value["m_ShaderHardwareTier"].value
                     gpu_program_type = sp["data"].value["m_GpuProgramType"].value
-                    keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    
+                    if "m_KeywordIndices" in sp["data"].value:
+                        keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    else:
+                        keywords = [names[kwi] for kwi in sp["data"].value["m_GlobalKeywordIndices"].value]
+                        keywords.extend([names[kwi] for kwi in sp["data"].value["m_LocalKeywordIndices"].value])
+                    
                     unique_progs.add(sp["data"].value["m_BlobIndex"].value)
                     unique_keywords.update(keywords)
 
@@ -1015,7 +1021,13 @@ class ShaderHandler(BaseHandler):
                 for sp in sub_programs:
                     hw_tier = sp["data"].value["m_ShaderHardwareTier"].value
                     gpu_program_type = sp["data"].value["m_GpuProgramType"].value
-                    keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    
+                    if "m_KeywordIndices" in sp["data"].value:
+                        keywords = [names[kwi] for kwi in sp["data"].value["m_KeywordIndices"].value]
+                    else:
+                        keywords = [names[kwi] for kwi in sp["data"].value["m_GlobalKeywordIndices"].value]
+                        keywords.extend([names[kwi] for kwi in sp["data"].value["m_LocalKeywordIndices"].value])
+                        
                     unique_progs.add(sp["data"].value["m_BlobIndex"].value)
                     unique_keywords.update(keywords)
 
