@@ -1296,6 +1296,11 @@ class AssetBundleHandler(BaseHandler):
         for key, asset in obj["m_Container"].value.iteritems():
             if "data" in key:
                 pptr = asset.value["second"].value["asset"]
+
+                if pptr.value["ID"] == 0:
+                    # Scenes have null pptr, ignore them.
+                    continue
+
                 obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
 
                 cursor.execute('''
