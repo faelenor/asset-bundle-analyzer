@@ -1304,7 +1304,7 @@ class AssetBundleHandler(BaseHandler):
                 obj_id = self._id_generator.get_id(pptr.value["GlobalFileIndex"], pptr.value["ID"])
 
                 cursor.execute('''
-                    INSERT INTO assets(bundle_id, name, obj_id)
+                    INSERT OR REPLACE INTO assets(bundle_id, name, obj_id)
                         VALUES(?,?,?)
                 ''', (
                     bundle_id,
