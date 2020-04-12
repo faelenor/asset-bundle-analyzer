@@ -138,30 +138,41 @@ class Parser(object):
                         global_index = self._file_index.get_id(file)
                         self._external_references[local_index] = global_index
 
-        with open(filepath) as f:
-            data = f.read()
-
-        # Parse the whole file, extract all objects.
-        regex = re.compile(r"ID: (\-?[a-f0-9]+) \(ClassID: (\d+)\) (\w+)([\s\S]*?(?=(\n{2,}ID:|$)))")
-        matches = regex.findall(data)
-
         objects = {}
-    
-        # Parse individual objects.
-        for match in matches:
-            try:
-                self._parse_lines(match[3])
-                objects[int(match[0])] = {"ClassID": int(match[1]), "Type": match[2], "Content": self._parse_obj()}
-            except Exception as e:
-                print("Error in " + match[0])
-                self._print_error()
-                raise
+
+        with open(filepath) as f:
+            lines = None
+            for line in f:
+                if lines is None:
+                    continue
+                if line.startswith("ID: "):
+                    self._parse_object(lines, objects)
+                    lines = []
+                lines.append(line.strip("\r\n"))
+
+            self._parse_object(lines, objects)
 
         return objects
 
-    def _parse_lines(self, data):
+    def _parse_object(self, lines, objects):
+        if not lines:
+            return
+
+        # Parse individual objects.
+        regex = re.compile(r"ID: (\-?[a-f0-9]+) \(ClassID: (\d+)\) (\w+)")
+        try:
+            title = lines[0]
+            lines[0] = ""
+            match = regex.match(title)
+            self._parse_lines(lines)
+            objects[int(match.group(1))] = {"ClassID": int(match.group(2)), "Type": match.group(3), "Content": self._parse_obj()}
+        except Exception as e:
+            print("Error in " + match[0])
+            self._print_error()
+            raise
+    
+    def _parse_lines(self, lines):
         self._index = 0
-        lines = data.splitlines()
         self._fields = []
 
         # Parse line by line.
