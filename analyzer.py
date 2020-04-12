@@ -143,11 +143,11 @@ class Parser(object):
         with open(filepath) as f:
             lines = None
             for line in f:
-                if lines is None:
-                    continue
                 if line.startswith("ID: "):
                     self._parse_object(lines, objects)
                     lines = []
+                if lines is None:
+                    continue
                 lines.append(line.strip("\r\n"))
 
             self._parse_object(lines, objects)
