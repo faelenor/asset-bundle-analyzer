@@ -167,7 +167,7 @@ class Parser(object):
             self._parse_lines(lines)
             objects[int(match.group(1))] = {"ClassID": int(match.group(2)), "Type": match.group(3), "Content": self._parse_obj()}
         except Exception as e:
-            print("Error in " + match[0])
+            print("Error in " + title)
             self._print_error()
             raise
     
