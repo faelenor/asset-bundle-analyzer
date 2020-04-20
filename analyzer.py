@@ -11,18 +11,21 @@ import fnmatch
 import uuid
 from multiprocessing import Process
 
-arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-arg_parser.add_argument("tool_path", help="path to Unity tools")
-arg_parser.add_argument("path", help="path of the asset bundle folder")
-arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
-arg_parser.add_argument("-o", "--output", default="database.db", help="name of the output database file")
-arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
-arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
-arg_parser.add_argument("-d", "--debug", help="enable pdb debugger to break when ctrl-c is pressed", action='store_true')
-arg_parser.add_argument("-v", "--verbose", help="display verbose script logging", action='store_true')
-args = arg_parser.parse_args()
-
 def main():
+    if sys.version_info[0] < 3:
+        print("\n***** Using Python 3 is highly recommended! *****\n")
+
+    arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    arg_parser.add_argument("tool_path", help="path to Unity tools")
+    arg_parser.add_argument("path", help="path of the asset bundle folder")
+    arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
+    arg_parser.add_argument("-o", "--output", default="database.db", help="name of the output database file")
+    arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
+    arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
+    arg_parser.add_argument("-d", "--debug", help="enable pdb debugger to break when ctrl-c is pressed", action='store_true')
+    arg_parser.add_argument("-v", "--verbose", help="display verbose script logging", action='store_true')
+    args = arg_parser.parse_args()
+
     if (args.debug == True):
         import signal
         signal.signal(signal.SIGINT, debug_signal_handler)
@@ -174,7 +177,7 @@ class Parser(object):
                 self._fields.append(field)
 
     def _print_error(self):
-        for i in xrange(max(0, self._index - 20), min(self._index + 20, len(self._fields))):
+        for i in range(max(0, self._index - 20), min(self._index + 20, len(self._fields))):
             print("{0} {1}".format("*" if self._index == i else " ", self._fields[i]))
 
     def _parse_obj(self, level=1):
@@ -223,7 +226,7 @@ class Parser(object):
                                     break
                                 vector.extend(self._fields[self._index].value.split(" "))
 
-                            obj[field.name] = Field("pod_vector:" + item_field.type, map(lambda x: self._typecast(x, item_field.type), vector))
+                            obj[field.name] = Field("pod_vector:" + item_field.type, [self._typecast(x, item_field.type) for x in vector])
 
                         else:
                             # Make sure that indentation level is one higher.
@@ -239,7 +242,7 @@ class Parser(object):
                             # No value means a nested object (Case for "data (Type)" element).
                             if not item_field.value:
                                 # Iterate over array elements.
-                                for i in xrange(size):
+                                for i in range(size):
                                     item_field = self._fields[self._index]
                                     self._index += 1
 
@@ -262,7 +265,7 @@ class Parser(object):
                                         vector.append({item_field.name: Field(item_field.type, self._parse_obj(level+2))})
                             else:
                                 # Case for simple types.
-                                for i in xrange(size):
+                                for i in range(size):
                                     field = self._fields[self._index]
                                     self._index += 1
                                     vector.append(Field(field.type, self._typecast(field.value, field.type)))
@@ -406,7 +409,7 @@ class ObjectProcessor(object):
         error_count = 0
         
         # Iterate on objects.
-        for object_id, obj in objs.iteritems():
+        for object_id, obj in objs.items():
             count += 1
 
             # Get unique id for this object.
@@ -417,10 +420,10 @@ class ObjectProcessor(object):
 
             if len(rows) != 0:
                 error_count += 1
-                print ("Ignoring duplicate object {0}!".format(object_id))
+                print("Ignoring duplicate object {0}!".format(object_id))
                 if error_count > 10:
-                    print ("Too many duplicate objects, aborting file {0}!".format(file))
-                    print ("Are you trying to analyze multiple variants of the same bundles? You should analyze one set of bundles at a time.")
+                    print("Too many duplicate objects, aborting file {0}!".format(file))
+                    print("Are you trying to analyze multiple variants of the same bundles? You should analyze one set of bundles at a time.")
                     break
                 continue
 
@@ -633,7 +636,7 @@ class ObjectProcessor(object):
             WHERE m.type = "Material" AND s.type = "Shader"
         ''')
 
-        for h in self._type_handlers.itervalues():
+        for h in self._type_handlers.values():
             h.init_database(cursor)
 
         db.commit()
@@ -675,7 +678,7 @@ class BaseHandler(object):
                 if field_path:
                     # Separate fields with ":""
                     field_path += ":"
-                for k, v in obj.iteritems():
+                for k, v in obj.items():
                     # Recursively process object.
                     s, r, c = self._recursive_process(v, field_path + k)
                     count += 1 + c
@@ -683,7 +686,7 @@ class BaseHandler(object):
                     references.extend(r)
             elif type(obj) is list:
                 # Recursively iterate over objects in list.
-                for i in xrange(len(obj)):
+                for i in range(len(obj)):
                     v = obj[i]
                     s, r, c = self._recursive_process(v, "{0}[{1}]".format(field_path, i))
                     count += c
@@ -987,7 +990,7 @@ class ShaderHandler(BaseHandler):
             pass_num = 0
             for p in passes:
                 names = {}
-                for k, n in p["data"].value["m_NameIndices"].value.iteritems():
+                for k, n in p["data"].value["m_NameIndices"].value.items():
                     if ("data" in k):
                         names[n.value["second"].value] = n.value["first"].value
                 
@@ -1293,7 +1296,7 @@ class AssetBundleHandler(BaseHandler):
     def process(self, current_id, obj, cursor, bundle_id):
         name = obj["m_Name"].value
         
-        for key, asset in obj["m_Container"].value.iteritems():
+        for key, asset in obj["m_Container"].value.items():
             if "data" in key:
                 pptr = asset.value["second"].value["asset"]
 
@@ -1417,7 +1420,7 @@ def run_tool_with_timeout(tool,filepath,ret_code,time_out,level=0):
     p.join(time_out)
 
     if p.is_alive():
-        print "{0} timeout".format(tool)
+        print("{0} timeout".format(tool))
 
         # Terminate
         p.terminate()
