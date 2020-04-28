@@ -11,20 +11,20 @@ import fnmatch
 import uuid
 from multiprocessing import Process
 
+arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+arg_parser.add_argument("tool_path", help="path to Unity tools")
+arg_parser.add_argument("path", help="path of the asset bundle folder")
+arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
+arg_parser.add_argument("-o", "--output", default="database.db", help="name of the output database file")
+arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
+arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
+arg_parser.add_argument("-d", "--debug", help="enable pdb debugger to break when ctrl-c is pressed", action='store_true')
+arg_parser.add_argument("-v", "--verbose", help="display verbose script logging", action='store_true')
+args = arg_parser.parse_args()
+
 def main():
     if sys.version_info[0] < 3:
         print("\n***** Using Python 3 is highly recommended! *****\n")
-
-    arg_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    arg_parser.add_argument("tool_path", help="path to Unity tools")
-    arg_parser.add_argument("path", help="path of the asset bundle folder")
-    arg_parser.add_argument("-p", "--pattern", default="*", help="asset bundle search pattern")
-    arg_parser.add_argument("-o", "--output", default="database.db", help="name of the output database file")
-    arg_parser.add_argument("-k", "--keep-temp", help="keep extracted files in asset bundle folder", action='store_true')
-    arg_parser.add_argument("-r", "--store-raw", help="store raw json object in 'raw_objects' database table", action='store_true')
-    arg_parser.add_argument("-d", "--debug", help="enable pdb debugger to break when ctrl-c is pressed", action='store_true')
-    arg_parser.add_argument("-v", "--verbose", help="display verbose script logging", action='store_true')
-    args = arg_parser.parse_args()
 
     if (args.debug == True):
         import signal
