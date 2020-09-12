@@ -24,7 +24,7 @@ args = arg_parser.parse_args()
 
 def main():
     if sys.version_info[0] < 3:
-        print("\n***** Using Python 3 is highly recommended! *****\n")
+        print("\n***** Using Python 3 is highly recommended! *****\n", flush=True)
 
     if (args.debug == True):
         import signal
@@ -141,7 +141,7 @@ class Parser(object):
                         global_index = self._file_index.get_id(file)
                         self._external_references[local_index] = global_index
 
-        with open(filepath) as f:
+        with open(filepath, encoding="utf8") as f:
             data = f.read()
 
         # Parse the whole file, extract all objects.
@@ -156,7 +156,7 @@ class Parser(object):
                 self._parse_lines(match[3])
                 objects[int(match[0])] = {"ClassID": int(match[1]), "Type": match[2], "Content": self._parse_obj()}
             except Exception as e:
-                print("Error in " + match[0])
+                print("Error in " + match[0], flush=True)
                 self._print_error()
                 raise
 
@@ -178,7 +178,7 @@ class Parser(object):
 
     def _print_error(self):
         for i in range(max(0, self._index - 20), min(self._index + 20, len(self._fields))):
-            print("{0} {1}".format("*" if self._index == i else " ", self._fields[i]))
+            print("{0} {1}".format("*" if self._index == i else " ", self._fields[i]), flush=True)
 
     def _parse_obj(self, level=1):
         obj = {}
@@ -194,7 +194,9 @@ class Parser(object):
                 return obj
             # If it's higher, than there's an error.
             elif field.level > level:
-                raise Exception("Indentation error!")
+                # quick fix here just to make it work
+				print("Warning: Indentation error!") 
+                return obj
 
             # Increment the current field index.
             self._index += 1
@@ -287,9 +289,7 @@ class Parser(object):
                     
                     # Special case because for some reason, lists are not always serialized as vectors.
                     if field_name in obj:
-                        i = 0
-                        while "{0}/{1}".format(field_name, i) in obj:
-                            i += 1
+                        i = len(obj) - 2; # remove "size" and field_name
                         field_name = "{0}/{1}".format(field_name, i)
 
                     # Recursively parse nested object.
@@ -420,10 +420,10 @@ class ObjectProcessor(object):
 
             if len(rows) != 0:
                 error_count += 1
-                print("Ignoring duplicate object {0}!".format(object_id))
+                print("Ignoring duplicate object {0}!".format(object_id), flush=True)
                 if error_count > 10:
-                    print("Too many duplicate objects, aborting file {0}!".format(file))
-                    print("Are you trying to analyze multiple variants of the same bundles? You should analyze one set of bundles at a time.")
+                    print("Too many duplicate objects, aborting file {0}!".format(file), flush=True)
+                    print("Are you trying to analyze multiple variants of the same bundles? You should analyze one set of bundles at a time.", flush=True)
                     break
                 continue
 
@@ -744,8 +744,10 @@ class BaseHandler(object):
             "Vector4f": 16,
             "Vector3f": 12,
             "Vector2f": 8,
+            "vector" : 16,
             "bool": 1, # TODO: check real serialized size of bool
             "GUID": 16,
+            "RectOffset" : 16,
         }
         size = size_map.get(field.type)
         if size is None:
@@ -755,7 +757,7 @@ class BaseHandler(object):
                 size = len(field.value) * size_map[field.type[11:]]
                 return size
             else:
-                print("Warning: unhandled type {0}!".format(field.type))
+                print("Warning: unhandled type {0}!".format(field.type), flush=True)
                 return 0
         return size
 
@@ -983,11 +985,11 @@ class ShaderHandler(BaseHandler):
         total_subprograms = 0
         unique_progs = set()
         unique_keywords = set()
+        pass_num = 0
 
         # Count number of sub shaders and sub programs.
         for ss in sub_shaders:
             passes = ss["data"].value["m_Passes"].value
-            pass_num = 0
             for p in passes:
                 names = {}
                 for k, n in p["data"].value["m_NameIndices"].value.items():
@@ -1148,6 +1150,20 @@ class ShaderHandler(BaseHandler):
             GROUP BY name
             ORDER BY total_size DESC, instances DESC
         ''')
+        cursor.execute('''
+            CREATE VIEW view_breakdown_textures AS
+            SELECT name, count(*) AS instances,
+            CASE
+                WHEN sum(size) < 1024 THEN printf("%!5.1f B", sum(size) * 1.0)
+                WHEN sum(size) >=  1024 AND sum(size) < (1024 * 1024) THEN printf("%!5.1f KB", sum(size) / 1024.0)
+                WHEN sum(size) >= (1024 * 1024)  AND sum(size) < (1024 * 1024 * 1024) THEN printf("%!5.1f MB", sum(size) / 1024.0 / 1024)
+                WHEN sum(size) >= (1024 * 1024 * 1024) THEN printf("%!5.1f GB", sum(size) / 1024.0 / 1024 / 1024)
+            END AS pretty_total_size,
+            sum(size) AS total_size, GROUP_CONCAT(bundle, CHAR(13)) AS in_bundles
+            FROM texture_view
+            GROUP BY name
+            ORDER BY total_size DESC, instances DESC
+        ''')        
         cursor.execute('''
             CREATE VIEW shader_subprogram_view AS
             SELECT s.*, pt.type AS api_type, sp.pass, sp.hw_tier, sp.prog_type, sp.keywords AS prog_keywords FROM shader_view s
@@ -1420,7 +1436,7 @@ def run_tool_with_timeout(tool,filepath,ret_code,time_out,level=0):
     p.join(time_out)
 
     if p.is_alive():
-        print("{0} timeout".format(tool))
+        print("{0} timeout".format(tool), flush=True)
 
         # Terminate
         p.terminate()
@@ -1444,7 +1460,7 @@ def debug_print(msg,level=0):
         indent = "-> "
         for x in range(level): 
             indent = "-" + indent
-    print("{0}{1}".format(indent, msg))
+    print("{0}{1}".format(indent, msg), flush=True)
 
 if __name__ == '__main__':  
     main()
