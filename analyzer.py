@@ -195,7 +195,7 @@ class Parser(object):
             # If it's higher, than there's an error.
             elif field.level > level:
                 # quick fix here just to make it work
-				print("Warning: Indentation error!") 
+                print("Warning: Indentation error!")
                 return obj
 
             # Increment the current field index.
