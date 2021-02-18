@@ -3,7 +3,7 @@ This tool extracts useful information from Unity asset bundles and stores the in
 
 ## Getting started
 
-You need Python 3 to run this program (it probably works on Python 2 as well, but it will be less efficient). You will also need a tool such as [DB Browser for SQLite](https://sqlitebrowser.org/) to query the database.
+You need Python 3 to run this program. You will also need a tool such as [DB Browser for SQLite](https://sqlitebrowser.org/) to query the database.
 
 This is a command line tool with two mandatory arguments. The first one is the path of the Unity tools folder and the second is the path of the root folder containing the asset bundles to analyze. For example:
 

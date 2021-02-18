@@ -24,7 +24,8 @@ args = arg_parser.parse_args()
 
 def main():
     if sys.version_info[0] < 3:
-        print("\n***** Using Python 3 is highly recommended! *****\n")
+        print("\nPython 3 is required!\n")
+        return
 
     if (args.debug == True):
         import signal
@@ -141,7 +142,7 @@ class Parser(object):
                         global_index = self._file_index.get_id(file)
                         self._external_references[local_index] = global_index
 
-        with open(filepath) as f:
+        with open(filepath, errors='ignore') as f:
             data = f.read()
 
         # Parse the whole file, extract all objects.
