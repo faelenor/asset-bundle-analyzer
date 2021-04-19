@@ -986,6 +986,7 @@ class ShaderHandler(BaseHandler):
         unique_keywords = set()
 
         # Count number of sub shaders and sub programs.
+        pass_num = 0
         for ss in sub_shaders:
             passes = ss["data"].value["m_Passes"].value
             pass_num = 0
