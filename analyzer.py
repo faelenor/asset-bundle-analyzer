@@ -582,7 +582,7 @@ class ObjectProcessor(object):
         # TODO: add other exception (components)
         cursor.execute('''
             CREATE VIEW view_potential_duplicates AS
-            SELECT COUNT(DISTINCT bundle) AS instances,
+            SELECT COUNT(name) AS instances,
             CASE
                 WHEN sum(size) < 1024 THEN printf("%!5.1f B", sum(size) * 1.0)
                 WHEN sum(size) >=  1024 AND sum(size) < (1024 * 1024) THEN printf("%!5.1f KB", sum(size) / 1024.0)
