@@ -142,7 +142,7 @@ class Parser(object):
                         global_index = self._file_index.get_id(file)
                         self._external_references[local_index] = global_index
 
-        with open(filepath, errors='ignore') as f:
+        with open(filepath, encoding="latin1") as f:
             data = f.read()
 
         # Parse the whole file, extract all objects.
