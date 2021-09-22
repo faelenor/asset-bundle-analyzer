@@ -142,15 +142,29 @@ class Parser(object):
                         global_index = self._file_index.get_id(file)
                         self._external_references[local_index] = global_index
 
+        # read as latin1 and try decode to utf-8 line by line
+        data = ""
+
         with open(filepath, encoding="latin1") as f:
-            data = f.read()
+            line = f.readline()
+            try:
+                line = line.encode("latin1").decode("utf-8", "ignore")
+            finally:
+                data += line
+
+            while line:
+                line = f.readline()
+                try:
+                    line = line.encode("latin1").decode("utf-8", "ignore")
+                finally:
+                    data += line
 
         # Parse the whole file, extract all objects.
         regex = re.compile(r"ID: (\-?[a-f0-9]+) \(ClassID: (\d+)\) (\w+)([\s\S]*?(?=(\n{2,}ID:|$)))")
         matches = regex.findall(data)
 
         objects = {}
-    
+
         # Parse individual objects.
         for match in matches:
             try:
