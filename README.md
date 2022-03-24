@@ -1,3 +1,8 @@
+# This project has been deprecated!
+
+It has been replaced by a much faster (25-50x) C# tool available here:
+[https://github.com/Unity-Technologies/UnityDataTools](https://github.com/Unity-Technologies/UnityDataTools)
+
 # asset-bundle-analyzer
 This tool extracts useful information from Unity asset bundles and stores the information in an SQLite database.
 
